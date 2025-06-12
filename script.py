@@ -1,3 +1,4 @@
+https://repo1.maven.org/maven2/io/github/spark-redshift-community/spark-redshift_2.12/6.3.0-spark_3.5/spark-redshift_2.12-6.3.0-spark_3.5.jar
 import sys
 from awsglue.context import GlueContext
 from pyspark.context import SparkContext
