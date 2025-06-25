@@ -1,0 +1,115 @@
+Step-by-Step Setup
+
+### 🔁 1. Update and Install Dependencies
+
+```bash
+sudo apt update -y && sudo apt upgrade -y
+sudo apt install -y git curl unzip build-essential python3 python3-venv python3-pip openssl
+ Install Go 1.22.3
+bash
+Copy
+Edit
+cd ~
+curl -LO https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+go version
+
+3. Clone and Build Fingerproxy
+bash
+Copy
+Edit
+cd ~
+git clone https://github.com/wi1dcard/fingerproxy.git
+cd fingerproxy
+make build_linux_amd64
+
+Binary is built at:
+
+bash
+Copy
+Edit
+bin/fingerproxy_linux_amd64
+
+4. Generate TLS Certificate
+bash
+Copy
+Edit
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 365 \
+  -keyout tls.key -out tls.crt \
+  -subj "/CN=fingerproxy" \
+  -addext "subjectAltName=IP:127.0.0.1,IP:$(curl -s ifconfig.me)"
+
+5. Setup Flask Fingerprint Logging App
+Create Python Virtual Environment
+bash
+Copy
+Edit
+cd ~
+python3 -m venv venv
+source venv/bin/activate
+pip install flask httpagentparser
+
+Create app.py
+python
+Copy
+Edit
+from flask import Flask, request, make_response
+import time, csv, os, httpagentparser, re
+
+app = Flask(__name__)
+CSV_FILE = 'fingerprints.csv'
+
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, 'w', newline='') as f:
+        csv.writer(f).writerow([
+            'timestamp', 'ip', 'user-agent', 'ja3', 'ja4', 'http2', 'os', 'browser', 'browser-brand'
+        ])
+
+def extract_browser_brand(ua_header):
+    if not ua_header:
+        return ""
+    brands = re.findall(r'"([^"]+)"', ua_header)
+    skip = ['Chromium', 'Not.A/Brand']
+    filtered = [b for b in brands if b not in skip]
+    return filtered[0] if filtered else 'Unknown'
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    user_agent = request.headers.get('User-Agent', '')
+    ip = request.remote_addr
+    ja3 = request.headers.get('JA3', '')
+    ja4 = request.headers.get('JA4', '')
+    http2 = request.headers.get('HTTP2', '')
+    os, browser = httpagentparser.simple_detect(user_agent)
+    brand = extract_browser_brand(request.headers.get('Sec-CH-UA', ''))
+
+    with open(CSV_FILE, 'a', newline='') as f:
+        csv.writer(f).writerow([
+            time.time(), ip, user_agent, ja3, ja4, http2, os, browser, brand
+        ])
+
+    response = make_response("✅ Fingerprint logged!\n")
+    response.headers['Accept-CH'] = 'Sec-CH-UA, Sec-CH-UA-Platform'
+    return response
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8080)
+
+ Run Flask Server
+
+source ~/venv/bin/activate
+python app.py
+Run Fingerproxy
+
+cd ~/fingerproxy
+./bin/fingerproxy_linux_amd64 \
+  -listen-addr :8443 \
+  -cert-filename ~/tls.crt \
+  -certkey-filename ~/tls.key \
+  -forward-url http://127.0.0.1:8080
+
+https://<your-ec2-public-ip>:8443
+
