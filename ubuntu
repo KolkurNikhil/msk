@@ -1,0 +1,99 @@
+ubuntu@ip-172-31-11-148:~/fingerproxy$ sudo ./bin/fingerproxy_linux_amd64   -listen-addr :443   -cert-filename ~/tls.crt   -certkey-filename ~/tls.key   -forward-url http://127.0.0.1:8080
+
+
+all commands 
+sudo apt update -y && sudo apt upgrade -y
+sudo apt install -y git curl unzip build-essential python3 python3-venv python3-pip openssl
+curl -LO https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+go version 
+git clone https://github.com/wi1dcard/fingerproxy.git
+cd fingerproxy
+make build_linux_amd64
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 365 \
+  -keyout tls.key -out tls.crt \
+  -subj "/CN=fingerproxy" \
+  -addext "subjectAltName=IP:127.0.0.1,IP:$(curl -s ifconfig.me)"
+cd ~
+python3 -m venv venv
+source venv/bin/activate
+pip install flask httpagentparser
+pip install user-agents
+create the python file and paste the code 
+python file 
+from flask import Flask, request, make_response, send_file
+import csv, os, time, re
+from collections import OrderedDict
+from user_agents import parse as ua_parse
+
+app = Flask(__name__)
+CSV_FILE = "fingerprints.csv"
+
+# 👇 Your required headers
+REQUIRED_HEADERS = [
+    "Host", "User-Agent", "Accept", "Accept-Language", "Accept-Encoding", "Connection",
+    "Referer", "Origin", "Content-Type", "Content-Length", "Authorization", "Cookie",
+    "Upgrade-Insecure-Requests", "Cache-Control", "Pragma", "TE", "If-Modified-Since",
+    "If-None-Match", "DNT", "X-Requested-With", "X-Forwarded-For", "X-Forwarded-Proto",
+    "X-Real-IP", "Forwarded", "X-CSRF-Token", "X-Api-Key", "Via", "Range", "Expect",
+    "Device-Memory", "Save-Data", "Sec-Fetch-Site", "Sec-Fetch-Mode",
+    "Sec-Fetch-Dest", "Sec-Fetch-User"
+]
+
+# 👇 CSV Header structure
+CSV_HEADERS = (
+    ["timestamp", "ip", "os-full", "os-name", "os-version", "browser", "browser-version"] +
+    REQUIRED_HEADERS
+)
+
+# 👇 Initialize CSV if not exists
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(CSV_HEADERS)
+
+def get_os_browser_info(user_agent):
+    ua = ua_parse(user_agent)
+    os_full = f"{ua.os.family} {ua.os.version_string}".strip()
+    return os_full, ua.os.family, ua.os.version_string, ua.browser.family, ua.browser.version_string
+
+@app.route("/", methods=["GET", "POST"])
+def log_request():
+    timestamp = time.time()
+    ip = request.remote_addr
+    user_agent = request.headers.get("User-Agent", "")
+
+    os_full, os_name, os_version, browser_name, browser_version = get_os_browser_info(user_agent)
+
+    # 👇 Extract required headers
+    header_values = [request.headers.get(h, "") for h in REQUIRED_HEADERS]
+
+    # 👇 Write to CSV
+    row = [timestamp, ip, os_full, os_name, os_version, browser_name, browser_version] + header_values
+    with open(CSV_FILE, "a", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(row)
+
+    response = make_response("✅ Request logged.\n")
+    response.headers['Accept-CH'] = 'Sec-CH-UA, Sec-CH-UA-Platform'
+    return response
+
+@app.route("/csv", methods=["GET"])
+def serve_csv():
+    return send_file(CSV_FILE, mimetype="text/csv", as_attachment=False)
+
+
+
+
+
+in another instance 
+cd ~/fingerproxy
+sudo ./bin/fingerproxy_linux_amd64 \
+  -listen-addr :443 \
+  -cert-filename ~/tls.crt \
+  -certkey-filename ~/tls.key \
+  -forward-url http://127.0.0.1:8080
+
+sudo lsof -i :8080 third terminal 
+open https 443 inbound rules 
+sudo ufw status
